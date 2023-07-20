@@ -469,7 +469,7 @@ def get_locally_signed_client_cert(fname, username, group=None, extfile=None):
     ca_key_file = "{}/certs/ca.key".format(snapdata_current)
     ca_file = "{}/certs/ca.crt".format(snapdata_current)
     if not os.path.exists(cer_key_file):
-        cmd_gen_cert_key = "{snap}/usr/bin/openssl genrsa -out {key} 2048".format(
+        cmd_gen_cert_key = "{snap}/openssl.wrapper genrsa -out {key} 2048".format(
             snap=snap_path, key=cer_key_file
         )
         subprocess.check_call(
@@ -478,7 +478,7 @@ def get_locally_signed_client_cert(fname, username, group=None, extfile=None):
         try_set_file_permissions(cer_key_file)
 
     cmd_cert = (
-        "{snap}/usr/bin/openssl req -new -sha256 -key {key} -out {csr} -subj {subject}".format(
+        "{snap}/openssl.wrapper req -new -sha256 -key {key} -out {csr} -subj {subject}".format(
             snap=snap_path,
             key=cer_key_file,
             csr=cer_req_file,
@@ -487,7 +487,7 @@ def get_locally_signed_client_cert(fname, username, group=None, extfile=None):
     )
     subprocess.check_call(cmd_cert.split(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-    cmd = "{snap}/usr/bin/openssl x509 -req -in {csr} -CA {ca} -CAkey {k} -CAcreateserial -out {crt} -days 3650".format(
+    cmd = "{snap}/openssl.wrapper x509 -req -in {csr} -CA {ca} -CAkey {k} -CAcreateserial -out {crt} -days 3650".format(
         snap=snap_path,
         csr=cer_req_file,
         ca=ca_file,
