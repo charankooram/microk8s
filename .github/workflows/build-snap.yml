@@ -10,11 +10,11 @@ jobs:
     steps:
       - name: Checking out repo
         uses: actions/checkout@v3.3.0
-      - name: Install lxd
-        run: |
-          sudo lxd init --auto
-          sudo usermod --append --groups lxd $USER
-          sg lxd -c 'lxc version'
+      #- name: Install lxd
+      #  run: |
+      #    sudo lxd init --auto
+      #    sudo usermod --append --groups lxd $USER
+      #    sg lxd -c 'lxc version'
       - name: Install snapcraft
         run: |
           sudo snap install snapcraft --classic
