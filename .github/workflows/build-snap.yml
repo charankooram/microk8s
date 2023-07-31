@@ -5,7 +5,7 @@ on: workflow_dispatch
 jobs:
   build:
     name: Create snap package
-    runs-on: arm64-cluster
+    runs-on: self-hosted
 
     steps:
       - name: Checking out repo
@@ -33,7 +33,7 @@ jobs:
 
   test-upgrade:
     name: Upgrade path test
-    runs-on: arm64-cluster
+    runs-on: self-hosted
     needs: build
 
     steps:
@@ -58,7 +58,7 @@ jobs:
 
   test-addons-core:
     name: Test core addons
-    runs-on: arm64-cluster
+    runs-on: self-hosted
     needs: build
 
     steps:
@@ -88,7 +88,7 @@ jobs:
 
   test-addons-community:
     name: Test community addons
-    runs-on: arm64-cluster
+    runs-on: self-hosted
     needs: build
 
     steps:
@@ -116,7 +116,7 @@ jobs:
 
   test-addons-core-upgrade:
     name: Test core addons upgrade
-    runs-on: arm64-cluster
+    runs-on: self-hosted
     needs: build
 
     steps:
@@ -143,7 +143,7 @@ jobs:
 
   test-cluster-agent:
     name: Cluster agent health check
-    runs-on: arm64-cluster
+    runs-on: self-hosted
     needs: build
 
     steps:
@@ -168,7 +168,7 @@ jobs:
 
   test-airgap:
     name: Test airgap installation
-    runs-on: arm64-cluster
+    runs-on: self-hosted
     needs: build
 
     steps:
@@ -191,7 +191,7 @@ jobs:
 
   security-scan:
     name: Security scan
-    runs-on: arm64-cluster
+    runs-on: self-hosted
     needs: build
     steps:
       - name: Checking out repo
