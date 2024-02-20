@@ -1,17 +1,10 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 set -ex
 
-export PATH="$SNAP/usr/sbin:$SNAP/usr/bin:$SNAP/sbin:$SNAP/bin:$PATH"
-ARCH="$($SNAP/bin/uname -m)"
-export LD_LIBRARY_PATH="$LD_LIBRARY_PATH:$SNAP/lib:$SNAP/usr/lib:$SNAP/lib/$ARCH-linux-gnu:$SNAP/usr/lib/$ARCH-linux-gnu"
-export LD_LIBRARY_PATH=$SNAP_LIBRARY_PATH:$LD_LIBRARY_PATH
-export LC_ALL="${LC_ALL:-C.UTF-8}"
-export LANG="${LANG:-C.UTF-8}"
-export XDG_RUNTIME_DIR="${SNAP_COMMON}/run"
-mkdir -p "${XDG_RUNTIME_DIR}"
-
 source $SNAP/actions/common/utils.sh
+
+use_snap_env
 
 app=kubelite
 
@@ -67,17 +60,17 @@ then
   fi
 fi
 
-# Sanatize arguments
-if [ -e $SNAP_DATA/var/lock/no-arg-sanitisation ] 
-then 
+# Sanitise arguments
+if [ -e $SNAP_DATA/var/lock/no-arg-sanitisation ]
+then
   echo "Skipping argument sanitisation."
 else
   echo "Sanitise arguments."
-  sanatise_argskubeapi_server
-  sanatise_argskubelet
-  sanatise_argskube_proxy
-  sanatise_argskube_scheduler
-  sanatise_argskube_controller_manager
+  sanitise_args_kubeapi_server
+  sanitise_args_kubelet
+  sanitise_args_kube_proxy
+  sanitise_args_kube_scheduler
+  sanitise_args_kube_controller_manager
 fi
 
 ## Kubelet configuration
@@ -117,8 +110,7 @@ fi
 #UFW configuration
 if ! is_strict && (ufw version &> /dev/null)
 then
-  ufw=$(ufw status)
-  if echo $ufw | grep -q "Status: active" &&
+  if ufw status | grep -q "Status: active" &&
      ! [ -e ${SNAP_DATA}/var/lock/skip.ufw ]
   then
     # These succeed regardless of whether the rule exists already or not

@@ -4,8 +4,7 @@ set -eux
 
 source $SNAP/actions/common/utils.sh
 
-export LC_ALL="${LC_ALL:-C.UTF-8}"
-export LANG="${LANG:-C.UTF-8}"
+use_snap_env
 
 # Make sure either the install hook has run or we are refreshing an already existing snap as indicated
 # by the existence of certificates.
@@ -16,9 +15,6 @@ fi
 
 if is_strict
 then
-  ARCH="$($SNAP/bin/uname -m)"
-  export LD_LIBRARY_PATH="$SNAP/lib:$SNAP/usr/lib:$SNAP/lib/$ARCH-linux-gnu:$SNAP/usr/lib/$ARCH-linux-gnu"
-
   echo "Checking snap interfaces..."
 
   check_snap_interfaces # Check for interfaces but do not start until this script has run.
@@ -34,6 +30,32 @@ need_proxy_restart=false
 need_kubelet_restart=false
 need_controller_restart=false
 need_scheduler_restart=false
+
+# Try to symlink /var/lib/kubelet so that most kubelet device plugins work out of the box.
+if ! [ -e /var/lib/kubelet ] && ln -s $SNAP_COMMON/var/lib/kubelet /var/lib/kubelet; then
+  echo "/var/lib/kubelet linked to $SNAP_COMMON"
+fi
+
+SNAP_DATA_CURRENT=`echo "${SNAP_DATA}" | sed -e "s,${SNAP_REVISION},current,"`
+
+# Try to symlink /var/lib/calico so that the Calico CNI plugin picks up the mtu configuration.
+if ! [ -e /var/lib/calico ]; then
+  if ln -s $SNAP_DATA_CURRENT/var/lib/calico /var/lib/calico; then
+    echo "/var/lib/calico linked to $SNAP_DATA_CURRENT/var/lib/calico"
+  fi
+fi
+
+# Try to symlink standard CNI Kubernetes directories.
+if ! [ -e /etc/cni/net.d ]; then
+  if mkdir -p /etc/cni && ln -s $SNAP_DATA_CURRENT/args/cni-network /etc/cni/net.d; then
+    echo "/etc/cni/net.d linked to $SNAP_DATA_CURRENT/args/cni-network"
+  fi
+fi
+if ! [ -e /opt/cni/bin ]; then
+  if mkdir -p /opt/cni && ln -s $SNAP_DATA_CURRENT/opt/cni/bin /opt/cni/bin; then
+    echo "/opt/cni/bin linked to $SNAP_DATA_CURRENT/opt/cni/bin"
+  fi
+fi
 
 # If the configurations directory is missing from SNAP_COMMON, we are upgrading from an older MicroK8s version.
 if [ ! -d "${SNAP_COMMON}/etc/launcher" ]
@@ -202,6 +224,11 @@ fi
 if ! [ -d "${SNAP_COMMON}/hooks" ]
 then
   cp -r --preserve=mode ${SNAP}/default-hooks ${SNAP_COMMON}/hooks
+fi
+
+# (1.28 -> 1.29) Install 10-pods-restart hook if missing
+if ! [ -e "${SNAP_COMMON}/hooks/reconcile.d/10-pods-restart" ]; then
+  cp -r --preserve=mode "${SNAP}/default-hooks/reconcile.d/10-pods-restart" "${SNAP_COMMON}/hooks/reconcile.d/10-pods-restart"
 fi
 
 # Make sure the server certificate includes the IP we are using
@@ -532,7 +559,7 @@ fi
 # if we are refreshing in a no-flanneld we need to restart the CNI pods because they mount parts of $SNAP_DATA
 if [ -e "${SNAP_DATA}/var/lock/no-flanneld" ]
 then
-  touch "${SNAP_DATA}/var/lock/cni-needs-reload"
+  touch "${SNAP_DATA}/var/lock/snapdata-mounts-need-reload"
 fi
 
 # Restart reconfigured services

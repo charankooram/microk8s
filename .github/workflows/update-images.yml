@@ -27,14 +27,14 @@ jobs:
           - { branch: 1.23-eksd, channel: 1.23-eksd }
     steps:
       - name: Checkout
-        uses: actions/checkout@v3.3.0
+        uses: actions/checkout@v4
         with:
           ref: ${{ matrix.branch }}
       - name: Update image list
         run: |
           ./build-scripts/update-images.sh ${{ matrix.channel }} build-scripts/images.txt
       - name: Create pull request
-        uses: peter-evans/create-pull-request@v4
+        uses: peter-evans/create-pull-request@v5
         with:
           commit-message: update list of images used by ${{ matrix.channel }}
           title: "[${{ matrix.channel }}] Update MicroK8s images"

@@ -9,7 +9,7 @@ jobs:
 
     steps:
       - name: Checking out repo
-        uses: actions/checkout@v3.3.0
+        uses: actions/checkout@v4
       - name: Install lxd
         run: |
           sudo lxd init --auto
@@ -20,7 +20,8 @@ jobs:
           sudo snap install snapcraft --classic
       - name: Install snapd from candidate
         run: |
-          sudo snap refresh snapd --channel=latest/beta
+          # TODO(neoaggelos): revert this after latest/beta is working again
+          sudo snap refresh snapd --channel=latest/stable
       - name: Build snap
         run: |
           sg lxd -c 'snapcraft --use-lxd'
@@ -38,7 +39,7 @@ jobs:
 
     steps:
       - name: Checking out repo
-        uses: actions/checkout@v3.3.0
+        uses: actions/checkout@v4
       - name: Install test dependencies
         run: |
           set -x
@@ -63,7 +64,7 @@ jobs:
 
     steps:
       - name: Checking out repo
-        uses: actions/checkout@v3.3.0
+        uses: actions/checkout@v4
       - name: Install test dependencies
         run: |
           set -x
@@ -93,7 +94,7 @@ jobs:
 
     steps:
       - name: Checking out repo
-        uses: actions/checkout@v3.3.0
+        uses: actions/checkout@v4
       - name: Install test dependencies
         run: |
           set -x
@@ -107,11 +108,14 @@ jobs:
         with:
           name: microk8s.snap
           path: build
+      # - name: Setup tmate session
+      #   uses: mxschmitt/action-tmate@v3
       - name: Running addons tests
         run: |
           set -x
           sudo snap install build/microk8s.snap --classic --dangerous
           sudo microk8s enable community
+          export UNDER_TIME_PRESSURE="True"
           sudo -E bash -c "cd /var/snap/microk8s/common/addons/community/; pytest -s -ra ./tests/"
 
   test-addons-core-upgrade:
@@ -121,7 +125,9 @@ jobs:
 
     steps:
       - name: Checking out repo
-        uses: actions/checkout@v3.3.0
+        uses: actions/checkout@v4
+      # - name: Setup tmate session
+      #   uses: mxschmitt/action-tmate@v3
       - name: Install test dependencies
         run: |
           set -x
@@ -148,7 +154,7 @@ jobs:
 
     steps:
       - name: Checking out repo
-        uses: actions/checkout@v3.3.0
+        uses: actions/checkout@v4
       - name: Install test dependencies
         run: |
           set -x
@@ -173,7 +179,7 @@ jobs:
 
     steps:
       - name: Checking out repo
-        uses: actions/checkout@v3.3.0
+        uses: actions/checkout@v4
       - name: Fetch snap
         uses: actions/download-artifact@v3.0.2
         with:
@@ -189,13 +195,40 @@ jobs:
         run: |
           sudo -E bash -x -c "./tests/libs/airgap.sh --distro ubuntu:20.04 --channel $PWD/build/microk8s.snap"
 
+  test-spread:
+    name: Test microk8s on multi distros
+    runs-on: ubuntu-20.04
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: ["images:centos/7", "images:debian/12"]
+    steps:
+      - name: Checking out repo
+        uses: actions/checkout@v4
+      - name: Fetch snap
+        uses: actions/download-artifact@v3.0.2
+        with:
+          name: microk8s.snap
+          path: build
+      - name: Initialize LXD
+        run: |
+          sudo apt install apparmor apparmor-utils -y
+          sudo lxd init --auto
+          sudo lxc network set lxdbr0 ipv6.address=none
+          sudo usermod --append --groups lxd $USER
+          sg lxd -c 'lxc version'
+      - name: Run spread tests
+        run: |
+          sudo -E bash -x -c "./tests/libs/spread.sh --distro ${{ matrix.distro }} --channel $PWD/build/microk8s.snap"
+
   security-scan:
     name: Security scan
     runs-on: self-hosted
     needs: build
     steps:
       - name: Checking out repo
-        uses: actions/checkout@v3.3.0
+        uses: actions/checkout@v4
       - name: Fetch snap
         uses: actions/download-artifact@v3.0.2
         with:

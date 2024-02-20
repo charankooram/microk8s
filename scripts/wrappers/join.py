@@ -11,6 +11,7 @@ import string
 import subprocess
 import sys
 import time
+import ipaddress
 
 import click
 import requests
@@ -161,6 +162,8 @@ def get_connection_info(
                 "hostname": socket.gethostname().lower(),
                 "port": cluster_agent_port,
                 "worker": worker,
+                "can_handle_x509_auth": True,
+                "can_handle_custom_etcd": True,
             }
 
             return join_request(conn, CLUSTER_API_V2, req_data, master_ip, verify_peer, fingerprint)
@@ -193,7 +196,7 @@ def get_etcd_client_cert(master_ip, master_port, token):
     """
     cer_req_file = "{}/certs/server.remote.csr".format(snapdata_path)
     cmd_cert = (
-        "{snap}/usr/bin/openssl req -new -sha256 -key {snapdata}/certs/server.key -out {csr} "
+        "{snap}/openssl.wrapper req -new -sha256 -key {snapdata}/certs/server.key -out {csr} "
         "-config {snapdata}/certs/csr.conf".format(
             snap=snap_path, snapdata=snapdata_path, csr=cer_req_file
         )
@@ -309,7 +312,7 @@ def create_kubeconfig(token, ca, master_ip, api_port, filename, user):
         try_set_file_permissions(config)
 
 
-def update_kubeproxy(token, ca, master_ip, api_port, hostname_override):
+def update_kubeproxy(token, ca, master_ip, api_port):
     """
     Configure the kube-proxy
 
@@ -317,16 +320,14 @@ def update_kubeproxy(token, ca, master_ip, api_port, hostname_override):
     :param ca: the ca
     :param master_ip: the master node IP
     :param api_port: the API server port
-    :param hostname_override: the hostname override in case the hostname is not resolvable
     """
     create_kubeconfig(token, ca, master_ip, api_port, "proxy.config", "kubeproxy")
     set_arg("--master", None, "kube-proxy")
-    if hostname_override:
-        set_arg("--hostname-override", hostname_override, "kube-proxy")
+    set_arg("--hostname-override", None, "kube-proxy")
     service("restart", "proxy")
 
 
-def update_cert_auth_kubeproxy(token, master_ip, master_port, hostname_override):
+def update_cert_auth_kubeproxy(token, master_ip, master_port):
     """
     Configure the kube-proxy
 
@@ -334,13 +335,11 @@ def update_cert_auth_kubeproxy(token, master_ip, master_port, hostname_override)
     :param ca: the ca
     :param master_ip: the master node IP
     :param master_port: the master node port where the cluster agent listens
-    :param hostname_override: the hostname override in case the hostname is not resolvable
     """
     proxy_token = "{}-proxy".format(token)
     get_client_cert(master_ip, master_port, "proxy", proxy_token, "/CN=system:kube-proxy", False)
     set_arg("--master", None, "kube-proxy")
-    if hostname_override:
-        set_arg("--hostname-override", hostname_override, "kube-proxy")
+    set_arg("--hostname-override", None, "kube-proxy")
 
 
 def update_kubeproxy_cidr(cidr):
@@ -504,9 +503,10 @@ def store_cert(filename, payload):
     :param payload: certificate payload
     """
     file_with_path = "{}/certs/{}".format(snapdata_path, filename)
-    backup_file_with_path = "{}.backup".format(file_with_path)
-    shutil.copyfile(file_with_path, backup_file_with_path)
-    try_set_file_permissions(backup_file_with_path)
+    if os.path.exists(file_with_path):
+        backup_file_with_path = "{}.backup".format(file_with_path)
+        shutil.copyfile(file_with_path, backup_file_with_path)
+        try_set_file_permissions(backup_file_with_path)
     with open(file_with_path, "w+") as fp:
         fp.write(payload)
     try_set_file_permissions(file_with_path)
@@ -596,7 +596,14 @@ def update_dqlite(cluster_cert, cluster_key, voters, host):
     with open("{}/info.yaml".format(cluster_backup_dir)) as f:
         data = yaml.safe_load(f)
     if "Address" in data:
-        port = data["Address"].split(":")[1]
+        port = data["Address"].rsplit(":")[-1]
+
+    # If host is an IPv6 address, wrap it in square brackets
+    try:
+        if ipaddress.ip_address(host).version == 6:
+            host = "[{}]".format(host)
+    except ValueError:
+        pass
 
     init_data = {"Cluster": voters, "Address": "{}:{}".format(host, port)}
     with open("{}/init.yaml".format(cluster_dir), "w") as f:
@@ -640,7 +647,7 @@ def join_dqlite(connection_parts, verify=False, worker=False):
     :param connection_parts: connection string parts
     """
     token = connection_parts[1]
-    master_ep = connection_parts[0].split(":")
+    master_ep = connection_parts[0].rsplit(":", 1)
     master_ip = master_ep[0]
     master_port = master_ep[1]
     fingerprint = None
@@ -758,7 +765,7 @@ def join_dqlite_worker_node(info, master_ip, master_port, token):
     store_base_kubelet_args(info["kubelet_args"])
     update_kubelet_node_ip(info["kubelet_args"], hostname_override)
     update_kubelet_hostname_override(info["kubelet_args"])
-    update_cert_auth_kubeproxy(token, master_ip, master_port, hostname_override)
+    update_cert_auth_kubeproxy(token, master_ip, master_port)
     update_cert_auth_kubelet(token, master_ip, master_port)
     subprocess.check_call(
         [f"{snap()}/actions/common/utils.sh", "create_worker_kubeconfigs"],
@@ -811,7 +818,25 @@ def join_dqlite_master_node(info, master_ip):
     update_kubelet_node_ip(info["kubelet_args"], hostname_override)
     update_kubelet_hostname_override(info["kubelet_args"])
     store_callback_token(info["callback_token"])
-    update_dqlite(info["cluster_cert"], info["cluster_key"], info["voters"], hostname_override)
+
+    if "etcd_servers" in info:
+        set_arg("--etcd-servers", info["etcd_servers"], "kube-apiserver")
+        if info.get("etcd_ca"):
+            store_cert("remote-etcd-ca.crt", info["etcd_ca"])
+            set_arg("--etcd-cafile", "${SNAP_DATA}/certs/remote-etcd-ca.crt", "kube-apiserver")
+        if info.get("etcd_cert"):
+            store_cert("remote-etcd.crt", info["etcd_cert"])
+            set_arg("--etcd-certfile", "${SNAP_DATA}/certs/remote-etcd.crt", "kube-apiserver")
+        if info.get("etcd_key"):
+            store_cert("remote-etcd.key", info["etcd_key"])
+            set_arg("--etcd-keyfile", "${SNAP_DATA}/certs/remote-etcd.key", "kube-apiserver")
+
+        mark_no_dqlite()
+        service("restart", "k8s-dqlite")
+        service("restart", "apiserver")
+    else:
+        update_dqlite(info["cluster_cert"], info["cluster_key"], info["voters"], hostname_override)
+
     # We want to update the local CNI yaml but we do not want to apply it.
     # The cni is applied already in the cluster we join
     try_initialise_cni_autodetect_for_clustering(master_ip, apply_cni=False)
@@ -825,7 +850,7 @@ def join_etcd(connection_parts, verify=True):
     :param connection_parts: connection string parts
     """
     token = connection_parts[1]
-    master_ep = connection_parts[0].split(":")
+    master_ep = connection_parts[0].rsplit(":", 1)
     master_ip = master_ep[0]
     master_port = master_ep[1]
     callback_token = generate_callback_token()
@@ -862,12 +887,10 @@ def join_etcd(connection_parts, verify=True):
     update_flannel(info["etcd"], master_ip, master_port, token)
 
     if api_authn_mode == "Token":
-        update_kubeproxy(
-            info["kubeproxy"], info["ca"], master_ip, info["apiport"], hostname_override
-        )
+        update_kubeproxy(info["kubeproxy"], info["ca"], master_ip, info["apiport"])
         update_kubelet(info["kubelet"], info["ca"], master_ip, info["apiport"])
     elif api_authn_mode == "Cert":
-        update_cert_auth_kubeproxy(info["kubeproxy"], master_ip, master_port, hostname_override)
+        update_cert_auth_kubeproxy(info["kubeproxy"], master_ip, master_port)
         update_cert_auth_kubelet(info["kubelet"], master_ip, master_port)
         subprocess.check_call(
             [
@@ -902,6 +925,15 @@ def unmark_join_in_progress():
     lock_file = "{}/var/lock/join-in-progress".format(snapdata_path)
     if os.path.exists(lock_file):
         os.unlink(lock_file)
+
+
+def mark_no_dqlite():
+    """
+    Mark node to not run k8s-dqlite service.
+    """
+    lock_file = "{}/var/lock/no-k8s-dqlite".format(snapdata_path)
+    open(lock_file, "a").close()
+    os.chmod(lock_file, 0o700)
 
 
 @click.command(
@@ -969,6 +1001,7 @@ If you would still like to join the cluster as a control plane node, use:
         join_etcd(connection_parts, verify)
 
     unmark_join_in_progress()
+    print("Successfully joined the cluster.")
     sys.exit(0)
 
 

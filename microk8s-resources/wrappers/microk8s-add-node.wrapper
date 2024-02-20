@@ -1,14 +1,10 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 set -eu
 
-export PATH="$SNAP/usr/sbin:$SNAP/usr/bin:$SNAP/sbin:$SNAP/bin:$PATH"
-ARCH="$($SNAP/bin/uname -m)"
-export LD_LIBRARY_PATH="$SNAP/lib:$SNAP/usr/lib:$SNAP/lib/$ARCH-linux-gnu:$SNAP/usr/lib/$ARCH-linux-gnu"
-export IN_SNAP_LD_LIBRARY_PATH="$SNAP/lib:$SNAP/usr/lib:$SNAP/lib/$ARCH-linux-gnu:$SNAP/usr/lib/$ARCH-linux-gnu"
-export PYTHONNOUSERSITE=false
-
 source $SNAP/actions/common/utils.sh
+
+use_snap_env
 
 if [ -e ${SNAP_DATA}/var/lock/clustered.lock ]
 then
@@ -18,7 +14,7 @@ fi
 
 if echo "$*" | grep -q -- 'help'; then
   # Call add_token.py help
-  LD_LIBRARY_PATH=$IN_SNAP_LD_LIBRARY_PATH ${SNAP}/usr/bin/python3 ${SNAP}/scripts/wrappers/add_token.py --help
+  ${SNAP}/usr/bin/python3 ${SNAP}/scripts/wrappers/add_token.py --help
   exit 0
 fi
 
@@ -26,7 +22,7 @@ exit_if_not_root
 
 exit_if_no_permissions
 
-subject=$(openssl x509 -sha256 -days 365 -noout -subject -in "$SNAP_DATA/certs/ca.crt")
+subject=$("${SNAP}/openssl.wrapper" x509 -sha256 -days 365 -noout -subject -in "$SNAP_DATA/certs/ca.crt")
 if [[ $subject == *"127.0.0.1"* ]]; then
   echo "Clustering requires a fresh MicroK8s installation. Reinstall with:"
   echo "sudo snap remove microk8s"
@@ -55,4 +51,4 @@ then
 fi
 
 # Use python's built-in (3.6+) secrets generator to produce the token.
-LD_LIBRARY_PATH=$IN_SNAP_LD_LIBRARY_PATH ${SNAP}/usr/bin/python3 ${SNAP}/scripts/wrappers/add_token.py "${@}"
+${SNAP}/usr/bin/python3 ${SNAP}/scripts/wrappers/add_token.py "${@}"
